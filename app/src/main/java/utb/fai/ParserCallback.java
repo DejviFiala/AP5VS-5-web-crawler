@@ -1,8 +1,8 @@
 package utb.fai;
 
 import java.net.URI;
-import java.util.HashSet;
 import java.util.LinkedList;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.swing.text.MutableAttributeSet;
 import javax.swing.text.html.HTML;
@@ -37,21 +37,26 @@ class ParserCallback extends HTMLEditorKit.ParserCallback {
      * (parsovali). Pokud najdeme na stránce URL, který je v této množině,
      * nebudeme jej u dále parsovat
      */
-    HashSet<URI> visitedURIs;
+    private final ConcurrentHashMap<URI, Boolean> visitedURIs;
 
     /**
      * foundURLs jsou všechna nová (zatím nenavštívená) URL, která na stránce
      * najdeme. Poté, co projdeme celou stránku, budeme z tohoto seznamu
-     * jednotlivá URL brát a zpracovávat.
+     * jednotlivá URL brát a zpracovvat.
      */
-    LinkedList<URIinfo> foundURIs;
+    private final LinkedList<URIinfo> foundURIs;
 
     /** pokud debugLevel>1, budeme vypisovat debugovací hlášky na std. error */
     int debugLevel = 0;
 
-    ParserCallback(HashSet<URI> visitedURIs, LinkedList<URIinfo> foundURIs) {
-        this.foundURIs = foundURIs;
+    private final ConcurrentHashMap<String, Integer> wordFrequency;
+
+    ParserCallback(ConcurrentHashMap<URI, Boolean> visitedURIs, 
+                  LinkedList<URIinfo> foundURIs,
+                  ConcurrentHashMap<String, Integer> wordFrequency) {
         this.visitedURIs = visitedURIs;
+        this.foundURIs = foundURIs;
+        this.wordFrequency = wordFrequency;
     }
 
     /**
@@ -74,8 +79,8 @@ class ParserCallback extends HTMLEditorKit.ParserCallback {
         if (href != null)
             try {
                 uri = pageURI.resolve(href);
-                if (!uri.isOpaque() && !visitedURIs.contains(uri)) {
-                    visitedURIs.add(uri);
+                if (!uri.isOpaque() && !visitedURIs.containsKey(uri)) {
+                    visitedURIs.put(uri, true);
                     foundURIs.add(new URIinfo(uri, depth + 1));
                     if (debugLevel > 0)
                         System.err.println("Adding URI: " + uri.toString());
@@ -100,9 +105,26 @@ class ParserCallback extends HTMLEditorKit.ParserCallback {
      * HTML stránkách.
      *******************************************************************/
     public void handleText(char[] data, int pos) {
-        System.out.println("handleText: " + String.valueOf(data) + ", pos=" + pos);
-        /**
-         * ...tady bude vaše implementace...
-         */
+        String text = new String(data);
+
+        String[] words = text.split("[\\s,.!?;:\"'\\[\\]{}()\\n\\r\\t]+");
+        
+        for (String word : words) {
+
+            word = word.trim();
+
+            if (word.length() < 1) {
+                continue;
+            }
+
+            if (word.matches("[0-9]+[xX][0-9a-fA-F]+,?")) {
+                wordFrequency.merge(word.toLowerCase(), 1, Integer::sum);
+                continue;
+            }
+
+            if (word.matches("[-=/{}>]+")) {
+                wordFrequency.merge(word, 1, Integer::sum);
+            }
+        }
     }
 }
